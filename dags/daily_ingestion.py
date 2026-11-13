@@ -1,12 +1,8 @@
 from datetime import datetime
 import json
-import os
-from pathlib import Path
-
+from utils.default_args import dag_args, DAILY
 import pandas as pd
-import pendulum
 import requests
-from sqlalchemy import URL, create_engine
 
 from airflow.decorators import dag, task
 
@@ -22,7 +18,7 @@ for config in daly_ingestion_config:
         dag_id=dag_id,
         schedule=config["schedule"],
         catchup=False,
-        tags=["job1", "personal"]
+        tags=[DAILY]
     )
     def daily_ingestion():
         @task
@@ -46,23 +42,31 @@ for config in daly_ingestion_config:
                     dt["mode"],
                     metadata = dt.get("metadata", [])
             )
-            engine = _get_dwh_engine()
-            df.to_sql(
-                config["dest_table"],
-                engine,
-                schema=config["dest_schema"],
-                if_exists="append",
-                index=False,
-            )
+            elif dt["mode"] == "full_load":
+                full_load(
+                    dt["source_endpoint"], 
+                    dt["dest_schema"], 
+                    dt["dest_table"],
+                    isTablebased=dt.get("isTablebased", False),
+                    metadata=dt.get("metadata", [])
+                )
+        #     engine = _get_dwh_engine()
+        #     df.to_sql(
+        #         config["dest_table"],
+        #         engine,
+        #         schema=config["dest_schema"],
+        #         if_exists="append",
+        #         index=False,
+        #     )
 
-        load_to_raw(fetch_weather())
+        # load_to_raw(fetch_weather())
 
-    def _load_config() -> dict:
-    with CONFIG_PATH.open(encoding="utf-8") as config_file:
-        configs = json.load(config_file)
+    # def _load_config() -> dict:
+    # with CONFIG_PATH.open(encoding="utf-8") as config_file:
+    #     configs = json.load(config_file)
 
-    if not isinstance(configs, list):
-        raise ValueError(f"{CONFIG_PATH} must contain a JSON array")
+    # if not isinstance(configs, list):
+    #     raise ValueError(f"{CONFIG_PATH} must contain a JSON array")
 
     matching_configs = [
         config
@@ -75,34 +79,34 @@ for config in daly_ingestion_config:
             f"found {len(matching_configs)}"
         )
 
-    config = matching_configs[0]
-    required_keys = {"api", "dest_schema", "dest_table", "schedule", "params"}
-    missing_keys = required_keys - config.keys()
-    if missing_keys:
-        raise ValueError(f"Missing config keys in {CONFIG_PATH}: {sorted(missing_keys)}")
-    if not isinstance(config["params"], dict):
-        raise ValueError(f"'params' in {CONFIG_PATH} must be a JSON object")
-    return config
+#     config = matching_configs[0]
+#     required_keys = {"api", "dest_schema", "dest_table", "schedule", "params"}
+#     missing_keys = required_keys - config.keys()
+#     if missing_keys:
+#         raise ValueError(f"Missing config keys in {CONFIG_PATH}: {sorted(missing_keys)}")
+#     if not isinstance(config["params"], dict):
+#         raise ValueError(f"'params' in {CONFIG_PATH} must be a JSON object")
+#     return config
 
 
-CONFIG = _load_config()
+# CONFIG = _load_config()
 
 
-def _get_dwh_engine():
-    user = os.environ["DWH_USER"]
-    password = os.environ["DWH_PASSWORD"]
-    host = os.environ["DWH_HOST"]
-    port = os.environ["DWH_PORT"]
-    db = os.environ["DWH_DB"]
-    url = URL.create(
-        "postgresql+psycopg2",
-        username=user,
-        password=password,
-        host=host,
-        port=int(port),
-        database=db,
-    )
-    return create_engine(url)
+# def _get_dwh_engine():
+#     user = os.environ["DWH_USER"]
+#     password = os.environ["DWH_PASSWORD"]
+#     host = os.environ["DWH_HOST"]
+#     port = os.environ["DWH_PORT"]
+#     db = os.environ["DWH_DB"]
+#     url = URL.create(
+#         "postgresql+psycopg2",
+#         username=user,
+#         password=password,
+#         host=host,
+#         port=int(port),
+#         database=db,
+#     )
+#     return create_engine(url)
 
 
 def daily_ingestion():

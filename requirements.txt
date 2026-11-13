@@ -2,14 +2,13 @@ requests==2.32.3
 pandas
 psycopg2-binary==2.9.10
 SQLAlchemy==2.0.36
-sqlalchemy
 pymssql
 
 pymysql
-load_dotenv
-pysheets
+python_dotenv
+pygsheets
 
 pendulum 
-requests ecfwojvpython -m pip install --upgrade pip
-pip install pandas pendulum requests sqlalchemy apache-airflowvcv
-apache-airflow
+# apache-airflow=2.10.3
+#pip install "apache-airflow==2.10.3" --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.3/constraints-3.11.txt"
+msal
