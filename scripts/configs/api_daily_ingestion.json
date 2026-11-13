@@ -1,0 +1,16 @@
+[
+    {
+        "api": "https://api.open-meteo.com/v1/forecast",
+        "dest_schema": "raw",
+        "dest_table": "daily_ingestion",
+        "model": "daily_ingestion",
+        "schedule": null,
+        "params": {
+            "latitude": 10.8231,
+            "longitude": 106.6297,
+            "current": "temperature_2m,relative_humidity_2m,wind_speed_10m",
+            "timezone": "Asia/Ho_Chi_Minh"
+        },
+        "mode": "incremental"
+    }
+]

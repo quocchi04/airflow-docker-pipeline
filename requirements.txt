@@ -1,0 +1,15 @@
+requests==2.32.3
+pandas
+psycopg2-binary==2.9.10
+SQLAlchemy==2.0.36
+sqlalchemy
+pymssql
+
+pymysql
+load_dotenv
+pysheets
+
+pendulum 
+requests ecfwojvpython -m pip install --upgrade pip
+pip install pandas pendulum requests sqlalchemy apache-airflowvcv
+apache-airflow
