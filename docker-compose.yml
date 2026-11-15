@@ -19,7 +19,7 @@ x-airflow-common:
     DWH_USER: ${DWH_USER:?Set DWH_USER in .env}
     DWH_PASSWORD: ${DWH_PASSWORD:?Set DWH_PASSWORD in .env}
     DWH_DB: ${DWH_DB:?Set DWH_DB in .env}
-
+    PYTHONPATH: /opt/airflow
   volumes:
     - ./dags:/opt/airflow/dags
     - ./scripts:/opt/airflow/scripts:ro

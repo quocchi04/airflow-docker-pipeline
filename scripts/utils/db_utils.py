@@ -1,15 +1,13 @@
 from asyncio.log import logger
-from email.mime import text
 import json
 import os
 from pathlib import Path
-from turtle import st
 from venv import logger
 import pandas as pd
 import pendulum
 import requests
-from sqlalchemy import URL, create_engine
-from utils.ingestion import get_ingestion
+from sqlalchemy import URL, create_engine, text
+from scripts.utils.ingestion import get_ingestion
 from datetime import date, datetime, timedelta
 import numpy as np
 
@@ -31,16 +29,16 @@ def check_if_table_exists(conn, schema: str, table: str) -> bool:
 
 # -------Kết nối tới dwh---------------------    
 def establish_wh_connection():
-    wh_host = os.inviron("DWH_HOST")
-    wh_port = os.environ("DWH_PORT")
-    wh_user = os.environ("DWH_USER")
-    wh_password = os.environ("DWH_PASSWORD")
-    wh_db = os.environ("DWH_DB")
+    wh_host = os.getenv("DWH_HOST")
+    wh_port = os.getenv("DWH_PORT")
+    wh_user = os.getenv("DWH_USER")
+    wh_password = os.getenv("DWH_PASSWORD")
+    wh_db = os.getenv("DWH_DB")
     try:
         engine_wh = create_engine(
             f"postgresql+psycopg2://{wh_user}:{wh_password}@{wh_host}:{wh_port}/{wh_db}"
         )
-        logger.info("Established Data Warehouse connection - Database: {wh_db}")
+        logger.info(f"Established Data Warehouse connection - Database: {wh_db}")
         return engine_wh
     except Exception as e:
         error_msg = f"Failed to establish Data Warehouse connection - Database: {wh_db}. Error: {e}"

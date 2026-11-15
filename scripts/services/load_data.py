@@ -51,7 +51,7 @@ def persist_data_to_dwh(df, dest_table, dest_schema):
         with conn.begin() as transaction:
             try:
                 if check_if_table_exists(conn, dest_schema, dest_table):
-                    truncate_table(df, conn, dest_schema, dest_table)
+                    truncate_table(conn, dest_schema, dest_table)
                 insert_df(df, conn, dest_schema, dest_table)
             except Exception as e:
                 print(f"Failed to persist to {dest_schema}.{dest_table}.Error: {str(e)}")
@@ -64,12 +64,8 @@ def construct_endpoint(ingestion_conn, endpoint):
     company_id = ingestion_conn["company_id"]
     return endpoint.format(env_name=env_name, company_name=company_name, company_id=company_id)
 
-def fetch_md_data(src_endpoint):
-    ingestion_conn = get_ingestion()   #connection
-    access_token = authorization(ingestion_conn)
-    header = {'Authorization': 'Bearer ' + access_token}
-    endpoint = construct_endpoint(ingestion_conn, src_endpoint)
-    response = requests.get(endpoint ,headers=header, timeout = 10)
+def fetch_md_data(src_endpoint, params=None):
+    response = requests.get(src_endpoint, params=params, timeout=30)
     if response.status_code == 200:
         return response.json()
     else:
@@ -77,26 +73,18 @@ def fetch_md_data(src_endpoint):
         messages = f"{response.status_code}: {response}"
         raise Exception(messages)
         
-def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, metadata=[]):
+def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, metadata=[], params=None):
     print(f"Start full loading...")
     print(f"Loading with pagination...")
     
-    #--B1: Kéo dữ liệu theo trang
-    all_data = []
-    next_url = source_endpoint
-    while next_url:
-        response = fetch_md_data(next_url)
-        new_data = response.get("value", [])
-        all_data.extend(new_data)
-        next_url = response.get("@odata.nextLink")
-    
-    if not all_data:
-        print("No data found to load.")
-        return
-    print(f"Fetched {len(all_data)} rows from the source endpoint.")
+    #--B1: Lấy dữ liệu từ API
+    response = fetch_md_data(source_endpoint, params=params)
+    current = response.get("current")
+    all_data = [current] if current else []
 
     #--B2: Chuyển thành df
     df = transform_data(all_data)
+    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
 
     #--B3: Gắn metadata
     if metadata:
@@ -105,7 +93,7 @@ def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, meta
     #--B4: Ghi vào dwh
     if not isTablebased:
         print("Performing data to DWH _WITHOUT_ table-based filtering...")
-        persist_data_to_dwh(df, dest_schema, dest_table)
+        persist_data_to_dwh(df, dest_schema=dest_schema, dest_table=dest_table)
     else:
         print("Persisting data to DWH _WITH_ table-based filtering...")
         table_columns = get_existing_columns(establish_wh_connection(), dest_schema, dest_table)
@@ -160,11 +148,11 @@ def fetch_new_data(conn, source_endpoint, dest_table, dest_schema, mode):
 
 def incremental_load(source_endpoint, dest_table, dest_schema, key_column, mode, metadata=[]):
     print(f"Start incremental loading...")
-    wh_conn = establich_wh_connection()
+    wh_conn = establish_wh_connection()
     keys = key_column.split(",")
 
     new_data, last_modified = fetch_new_data(wh_conn, source_endpoint, dest_schema, mode)
-    table_columns = get_existing_columns(establich_wh_connection(), dest_schema, dest_table)
+    table_columns = get_existing_columns(establish_wh_connection(), dest_schema, dest_table)
     
     if not new_data:
         print("No new data to process.")
@@ -178,7 +166,8 @@ def incremental_load(source_endpoint, dest_table, dest_schema, key_column, mode,
     
     if metadata:
         new_df = add_metadata(new_df, metadata, dest_table, dest_schema, table_columns=table_columns)
-    wh_conn = establich_wh_connection()
+    wh_conn = establish_wh_connection()
+
     # with wh_conn.connect() as conn:
     #     trans = conn.begin()
     #     try:
