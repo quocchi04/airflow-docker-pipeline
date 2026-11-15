@@ -4,6 +4,7 @@ import requests
 
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import text, Table, MetaData
+from sqlalchemy.dialects.postgresql import insert
 from scripts.utils.db_utils import (
     check_if_table_exists, 
     establish_wh_connection, 
@@ -121,7 +122,7 @@ def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, meta
 #         print(f"Failed to insert data into {schema}.{table}: {e}")
 #         raise
 def fetch_new_data(conn, source_endpoint, dest_table, dest_schema, mode):
-    if mode == "full_load" or table_is_empty(conn, dest_table, dest_schema, minutes_back=20):
+    if mode == "full_load" or table_is_empty(conn, dest_schema, dest_table, minutes_back=20):
         print(f"Table is empty. Performing full load...")
         last_modified = None
     else:
@@ -145,13 +146,28 @@ def fetch_new_data(conn, source_endpoint, dest_table, dest_schema, mode):
             
 # def upsert(conn, new_data, schema, table, keys):
 #     metadata = Metadata()
-
+def upsert(conn, new_data, schema, table, keys):
+    metadata = MetaData()
+    metadata.reflect(bind=conn)
+    table = Table(table, metadata, schema=schema, autoload_with=conn)
+    
+    if new_data.empty:
+        print("No new data to upsert.")
+        return
+    full_table_name = f"{schema}.{table}"
+    
+    stmt = insert(table).values(new_data.to_dict(orient="records"))
+    update_dict = {col: stmt.excluded[col] for col in new_data.columns if col not in keys}
+    upsert_stmt = stmt.on_conflict_do_update(index_elements=keys, set_=update_dict)
+    conn.execute(upsert_stmt)
+    print(f"Upserted {len(new_data)} rows into {full_table_name}.")
+    
 def incremental_load(source_endpoint, dest_table, dest_schema, key_column, mode, metadata=[]):
     print(f"Start incremental loading...")
     wh_conn = establish_wh_connection()
     keys = key_column.split(",")
 
-    new_data, last_modified = fetch_new_data(wh_conn, source_endpoint, dest_schema, mode)
+    new_data, last_modified = fetch_new_data(wh_conn, source_endpoint, dest_schema, dest_table, mode)
     table_columns = get_existing_columns(establish_wh_connection(), dest_schema, dest_table)
     
     if not new_data:
@@ -166,11 +182,16 @@ def incremental_load(source_endpoint, dest_table, dest_schema, key_column, mode,
     
     if metadata:
         new_df = add_metadata(new_df, metadata, dest_table, dest_schema, table_columns=table_columns)
-    wh_conn = establish_wh_connection()
-
-    # with wh_conn.connect() as conn:
-    #     trans = conn.begin()
-    #     try:
-    #         if last_modified:
-    #             upser
-    
+    with establish_wh_connection() as wh_conn:
+        trans = wh_conn.begin()
+        try:
+            if last_modified:
+                upsert(wh_conn, new_df, dest_schema, dest_table, keys)
+            else:
+                insert_df(new_df, wh_conn, dest_schema, dest_table)
+            trans.commit()
+            print("Incremental load completed successfully.")
+        except Exception as e:
+            trans.rollback()
+            print(f"Failed to perform incremental load. Error: {str(e)}")
+            raise
