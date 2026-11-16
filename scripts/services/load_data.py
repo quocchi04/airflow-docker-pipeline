@@ -12,11 +12,10 @@ from scripts.utils.db_utils import (
     truncate_table,
     get_existing_columns,
 )
-from scripts.utils.ingestion import get_ingestion, authorization, get_access_token
-MODIFIED_AT_COLUMN = "systemmodifiedat"
+MODIFIED_AT_COLUMN = "time"
 
-def get_last_modified(conn, table, schema, minutes_back: int = 0):
-    query = f"SELECT COALESCE(MAX({MODIFIED_AT_COLUMN}), '2000-01-01') FROM {schema}.{table}"
+def get_last_modified(conn, schema, table, minutes_back: int = 0):
+    query = f"SELECT MAX({MODIFIED_AT_COLUMN} FROM {schema}.{table}"
     result = conn.execute(text(query))
     utc_timestamp_str = result.fetchone()[0]
     
@@ -57,12 +56,6 @@ def persist_data_to_dwh(df, dest_table, dest_schema):
                 print(f"Failed to persist to {dest_schema}.{dest_table}.Error: {str(e)}")
                 raise
     print(f"Data persited to {dest_schema}.{dest_table} successfully.")
-
-def construct_endpoint(ingestion_conn, endpoint):
-    env_name = ingestion_conn["env_name"]
-    company_name = ingestion_conn["company_name"]
-    company_id = ingestion_conn["company_id"]
-    return endpoint.format(env_name=env_name, company_name=company_name, company_id=company_id)
 
 def fetch_md_data(src_endpoint, params=None):
     response = requests.get(src_endpoint, params=params, timeout=30)
@@ -110,26 +103,12 @@ def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, meta
             print(f"Warning: The following columns are missing in the destination table and will be ignored: {missing_cols}")
         persist_data_to_dwh(df_filtered, dest_schema, dest_table)
 
-# def insert_data(df: pd.DataFrame, conn, table: str, schema: str):
-#     print(f"Inserting {len(df)} rows into {schema}.{table}...")
-#     try:
-#         df.to_sql(
-#             table_name,
-#             engine,
-#             schema=schema,
-#             if_exists="append",
-#             index=False,
-#         )
-#         print(f"Successfully inserted {len(df)} rows into {schema}.{table}.")
-#     except Exception as e:
-#         print(f"Failed to insert data into {schema}.{table}: {e}")
-#         raise
-def fetch_new_data(conn, source_endpoint, dest_schema, dest_table, mode, params=None):
-    if mode == "full_load" or table_is_empty(conn, dest_schema, dest_table, minutes_back=20):
+def fetch_new_data(conn, source_endpoint, dest_schema, dest_table, params=None):
+    if table_is_empty(conn, dest_schema, dest_table):
         print(f"Table is empty. Performing full load...")
         last_modified = None
     else:
-        last_modified = get_last_modified(conn, dest_table, dest_schema)
+        last_modified = get_last_modified(conn, dest_schema, dest_table)
         print(f"Last modified timestamp: {last_modified}")
     
     payload = fetch_md_data(source_endpoint, params=params) 
@@ -144,7 +123,6 @@ def fetch_new_data(conn, source_endpoint, dest_schema, dest_table, mode, params=
 
 def upsert(conn, new_data, schema, table, keys):
     metadata = MetaData()
-    metadata.reflect(bind=conn)
     table = Table(table, metadata, schema=schema, autoload_with=conn)
     
     if new_data.empty:
@@ -184,7 +162,7 @@ def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metad
             new_df = new_df[[col for col in new_df.columns if col in table_columns]]
             
             if metadata:
-                new_df = add_metadata(new_df, metadata, dest_table, dest_schema, table_columns=table_columns)
+                new_df = add_metadata(new_df, metadata, dest_schema, dest_table, table_columns=table_columns)
                 
             if last_modified is not None:
                 upsert(conn, new_df, dest_schema, dest_table, keys)
