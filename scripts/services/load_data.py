@@ -1,4 +1,3 @@
-from email.mime import text
 import pandas as pd
 import requests
 
@@ -76,12 +75,16 @@ def fetch_md_data(src_endpoint, params=None):
         
 def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, metadata=[], params=None):
     print(f"Start full loading...")
-    print(f"Loading with pagination...")
     
     #--B1: Lấy dữ liệu từ API
     response = fetch_md_data(source_endpoint, params=params)
     current = response.get("current")
     all_data = [current] if current else []
+    
+    if not all_data:
+        print("No data to process.")
+        return
+    print(f"{len(all_data)} source records")
 
     #--B2: Chuyển thành df
     df = transform_data(all_data)
@@ -121,31 +124,24 @@ def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, meta
 #     except Exception as e:
 #         print(f"Failed to insert data into {schema}.{table}: {e}")
 #         raise
-def fetch_new_data(conn, source_endpoint, dest_table, dest_schema, mode):
+def fetch_new_data(conn, source_endpoint, dest_schema, dest_table, mode, params=None):
     if mode == "full_load" or table_is_empty(conn, dest_schema, dest_table, minutes_back=20):
         print(f"Table is empty. Performing full load...")
         last_modified = None
     else:
         last_modified = get_last_modified(conn, dest_table, dest_schema)
         print(f"Last modified timestamp: {last_modified}")
-        
-    print("Loading with pagination...")
-    all_data = []
-    next_url = source_endpoint
-    first_request = True
     
-    while next_url:
-        response = fetch_new_data
-        new_data = response.json().get("values", [])
-        all_data.extend(new_data)
-        next_url = response.json().get("@odata.nextLink")
-        
-        if first_request and last_modified:
-            all_data = [row for row in all_data if row.get(MODIFIED_AT_COLUMN) > last_modified]
-            first_request = False
-            
-# def upsert(conn, new_data, schema, table, keys):
-#     metadata = Metadata()
+    payload = fetch_md_data(source_endpoint, params=params) 
+    current = payload.get("current")
+    new_data = [current] if current else []
+
+    if last_modified is not None:
+        new_data = [row for row in new_data
+                    if pd.to_datetime(row["time"], unit ="s", utc=True) >= last_modified
+                    ]
+    return new_data, last_modified
+
 def upsert(conn, new_data, schema, table, keys):
     metadata = MetaData()
     metadata.reflect(bind=conn)
@@ -162,36 +158,38 @@ def upsert(conn, new_data, schema, table, keys):
     conn.execute(upsert_stmt)
     print(f"Upserted {len(new_data)} rows into {full_table_name}.")
     
-def incremental_load(source_endpoint, dest_table, dest_schema, key_column, mode, metadata=[]):
+            
+def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metadata=None, params=None):
     print(f"Start incremental loading...")
-    wh_conn = establish_wh_connection()
-    keys = key_column.split(",")
+    keys = [key.strip() for key in key_column.split(",")]
+    engine = establish_wh_connection()
 
-    new_data, last_modified = fetch_new_data(wh_conn, source_endpoint, dest_schema, dest_table, mode)
-    table_columns = get_existing_columns(establish_wh_connection(), dest_schema, dest_table)
+    try:
+        with engine.begin() as conn:
+            if not check_if_table_exists(conn, dest_schema, dest_table):
+                raise RuntimeError(f"Table {dest_schema}.{dest_table} does not exitst.")
+            
+            new_data, last_modified = fetch_new_data(conn, source_endpoint, dest_schema, dest_table, params)
+            if not new_data:
+                print("No new data to process.")
+                return
     
-    if not new_data:
-        print("No new data to process.")
-        return
-    
-    new_df = transform_data(new_data)
-    for col in new_data.columns:
-        if col not in table_columns:
-            print(f"Warning column: '{col}' does not exitst in destionation table and will be ignored.")
-    new_df = new_df[[col for col in new_df.columns if col in table_columns]]
-    
-    if metadata:
-        new_df = add_metadata(new_df, metadata, dest_table, dest_schema, table_columns=table_columns)
-    with establish_wh_connection() as wh_conn:
-        trans = wh_conn.begin()
-        try:
-            if last_modified:
-                upsert(wh_conn, new_df, dest_schema, dest_table, keys)
+            new_df = transform_data(new_data)
+            new_df["time"] = pd.to_datetime(new_df["time"], unit="s", utc=True)
+            # Chỉ giữ các cột có trong bảng
+            table_columns = get_existing_columns(conn, dest_schema, dest_table)
+            for col in new_df.columns:
+                if col not in table_columns:
+                    print(f"Warning column: '{col}' does not exitst in destionation table and will be ignored.")
+            new_df = new_df[[col for col in new_df.columns if col in table_columns]]
+            
+            if metadata:
+                new_df = add_metadata(new_df, metadata, dest_table, dest_schema, table_columns=table_columns)
+                
+            if last_modified is not None:
+                upsert(conn, new_df, dest_schema, dest_table, keys)
             else:
-                insert_df(new_df, wh_conn, dest_schema, dest_table)
-            trans.commit()
-            print("Incremental load completed successfully.")
-        except Exception as e:
-            trans.rollback()
-            print(f"Failed to perform incremental load. Error: {str(e)}")
-            raise
+                insert_df(new_df, conn, dest_schema, dest_table)
+        print("Incremental load completed successfully.")
+    finally:
+        engine.dispose()

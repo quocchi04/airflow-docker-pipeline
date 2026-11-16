@@ -1,7 +1,5 @@
 from datetime import datetime
 import json
-import pandas as pd
-import requests
 from scripts.utils.default_args import dag_args, DAILY
 from pathlib import Path
 
@@ -21,6 +19,7 @@ for config in daly_ingestion_config:
     dag_id = config["dag_id"]
 
     @dag(
+        default_args=dag_args,
         dag_id=dag_id,
         schedule=config["schedule"],
         catchup=False,
@@ -41,12 +40,12 @@ for config in daly_ingestion_config:
             from scripts.services.load_data import incremental_load, full_load
             if cfg["mode"] == "incremental":
                 incremental_load(
-                    cfg["source_endpoint"],
-                    cfg["dest_schema"],
-                    cfg["dest_table"],
-                    cfg["key_column"],
-                    cfg["mode"],
-                    metadata = cfg.get("metadata", [])
+                    source_endpoint=cfg["api"],
+                    dest_schema=cfg["dest_schema"],
+                    dest_table=cfg["dest_table"],
+                    key_column=cfg["key_column"],
+                    metadata = cfg.get("metadata", []),
+                    params=cfg.get("params")
             )
             elif cfg["mode"] == "full_load":
                 full_load(

@@ -13,7 +13,8 @@
       "timezone": "Asia/Ho_Chi_Minh",
       "timeformat": "unixtime"
     },
-    "mode": "full_load",
+    "key_column": "time",
+    "mode": "incremental",
     "isTablebased": false,
     "metadata": []
   }
