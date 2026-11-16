@@ -21,7 +21,7 @@ def check_if_table_exists(conn, schema: str, table: str) -> bool:
     result = conn.execute(query, {"schema": schema, "table": table}).scalar()
     return bool(result)
 
-# -------Kết nối tới dwh---------------------
+# -------Kết nối tới dwh---------------------    
 def establish_wh_connection():
     wh_host = os.getenv("DWH_HOST")
     wh_port = os.getenv("DWH_PORT")
@@ -55,24 +55,24 @@ def add_metadata(data: pd.DataFrame, metadata: list[dict],dest_schema:str,dest_t
                 elif table_columns == [] and table_exists:
                     print(f"Table {dest_schema}.{dest_table} does not exists, create new table with new metadata column...")
                     table_exists = False
-                elif table_columns != [] and table_exists:
+                elif table_columns != [] and table_exists: 
                     print(f"Metadata column {meta} not found in destination table {dest_schema}.{dest_table}, adding new column...")
                     if wh_engine is None:
                         wh_engine = establish_wh_connection()
                     with wh_engine.begin() as wh_conn:
                         query = ""
-                        if meta == "last_refresh_at":
+                        if meta == "last_refresh_at":    
                             query += f"""ALTER TABLE {dest_schema}.{dest_table}
                                         ADD COLUMN last_refresh_at timestamp with time zone;"""
                         if meta == "company_name":
                             query += f"""ALTER TABLE {dest_schema}.{dest_table}
                                         ADD COLUMN company_name varchar(256);"""
-                        if meta == "company_id":
+                        if meta == "company_id": 
                             query += f"""ALTER TABLE {dest_schema}.{dest_table}
                                         ADD COLUMN company_id varchar(256);"""
                         if query != "":
                             wh_conn.execute(text(query))
-            else:
+            else:  
                 print(f"Metadata column {meta} not found in destination table {dest_schema}.{dest_table}, skipping...")
                 continue
         if meta == "last_refresh_at":
@@ -82,7 +82,7 @@ def add_metadata(data: pd.DataFrame, metadata: list[dict],dest_schema:str,dest_t
         if meta == "company_id":
             data[meta] = bc_conn["company_id"]
         # Add other metadata handling as needed
-
+    
     return data
 
 def drop_table(conn, schema: str, table: str):
@@ -92,9 +92,9 @@ def drop_table(conn, schema: str, table: str):
 def truncate_table(conn, schema: str, table: str):
     logger.info(f'TRUNCATE TABLE {schema}.{table}')
     #Thực thi query
-    conn.execute(text(f'TRUNCATE TABLE {schema}.{table}'))
+    conn.execute(text(f'TRUNCATE TABLE {schema}.{table}')) 
     logger.info(f"Truncated table {table}")
-
+    
 def get_existing_columns(conn, schema, table):
     query = f"""
         SELECT column_name
@@ -104,5 +104,5 @@ def get_existing_columns(conn, schema, table):
         ORDER BY ordinal_position;
     """
     existing_cols_raw = conn.execute(text(query)).fetchall()
-    existing_col = [col[0] for col in existing_cols_raw]
+    existing_col = [col[0] for col in existing_cols_raw] 
     return existing_col
