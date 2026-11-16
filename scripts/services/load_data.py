@@ -14,13 +14,9 @@ from scripts.utils.db_utils import (
 )
 MODIFIED_AT_COLUMN = "time"
 
-def get_last_modified(conn, schema, table, minutes_back: int = 0):
-    query = f"SELECT MAX({MODIFIED_AT_COLUMN} FROM {schema}.{table}"
-    result = conn.execute(text(query))
-    utc_timestamp_str = result.fetchone()[0]
-    
-    utc_timestamp_str_back = utc_timestamp_str - timedelta(minutes=minutes_back)
-    return utc_timestamp_str_back.strftime("%Y-%m-%dT%H:%M:%SZ")
+def get_last_modified(conn, schema, table):
+    query = f"SELECT MAX({MODIFIED_AT_COLUMN}) FROM {schema}.{table}"
+    return conn.execute(text(query)).scalar()
 
 def transform_data(data) -> pd.DataFrame:
     df = pd.DataFrame(data)
