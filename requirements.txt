@@ -13,3 +13,5 @@ pendulum
 #pip install "apache-airflow==2.10.3" --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.3/constraints-3.11.txt"
 msal
 loguru
+gdown
+boto3
