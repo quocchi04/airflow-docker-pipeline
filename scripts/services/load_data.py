@@ -159,8 +159,6 @@ def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metad
                 if col not in table_columns:
                     print(f"Warning column: '{col}' does not exitst in destionation table and will be ignored.")
             new_df = new_df[[col for col in new_df.columns if col in table_columns]]
-            # ALTER TABLE raw.weather_hcmc
-            # ADD COLUMN IF NOT EXISTS execution_time timestamptz;
 
             if metadata:
                 new_df = add_metadata(new_df, metadata, dest_schema, dest_table, table_columns=table_columns)
