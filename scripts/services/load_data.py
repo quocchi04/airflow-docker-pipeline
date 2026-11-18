@@ -1,7 +1,6 @@
 import pandas as pd
 import requests
 
-from datetime import datetime, timedelta, timezone
 from sqlalchemy import text, Table, MetaData
 from sqlalchemy.dialects.postgresql import insert
 from scripts.utils.db_utils import (
@@ -12,16 +11,20 @@ from scripts.utils.db_utils import (
     truncate_table,
     get_existing_columns,
 )
+VN_TZ = "Asia/Ho_Chi_Minh"
 MODIFIED_AT_COLUMN = "time"
 
 def get_last_modified(conn, schema, table):
     query = f"SELECT MAX({MODIFIED_AT_COLUMN}) FROM {schema}.{table}"
     return conn.execute(text(query)).scalar()
 
-def transform_data(data) -> pd.DataFrame:
+def transform_data(data, execution_time=None) -> pd.DataFrame:
     df = pd.DataFrame(data)
     df.columns = df.columns.str.lower()
-    df["execution_time"] = datetime.now(timezone.utc)
+    df["execution_time"] = (
+        pd.Timestamp(execution_time) if execution_time
+        else pd.Timestamp.now(tz=VN_TZ)
+    )
     return df
 
 def insert_df(df: pd.DataFrame, conn, schema: str, table: str):
@@ -62,7 +65,7 @@ def fetch_md_data(src_endpoint, params=None):
         messages = f"{response.status_code}: {response}"
         raise Exception(messages)
         
-def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, metadata=[], params=None):
+def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, metadata=None, params=None, execution_time=None):
     print(f"Start full loading...")
     
     #--B1: Lấy dữ liệu từ API
@@ -76,8 +79,8 @@ def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, meta
     print(f"{len(all_data)} source records")
 
     #--B2: Chuyển thành df
-    df = transform_data(all_data)
-    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+    df = transform_data(all_data, execution_time)
+    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True).dt.tz_convert(VN_TZ)
 
     #--B3: Gắn metadata
     if metadata:
@@ -113,7 +116,7 @@ def fetch_new_data(conn, source_endpoint, dest_schema, dest_table, params=None):
 
     if last_modified is not None:
         new_data = [row for row in new_data
-                    if pd.to_datetime(row["time"], unit ="s", utc=True) >= last_modified
+                    if pd.to_datetime(row["time"], unit ="s", utc=True).tz_convert(VN_TZ) >= last_modified
                     ]
     return new_data, last_modified
 
@@ -133,7 +136,7 @@ def upsert(conn, new_data, schema, table, keys):
     print(f"Upserted {len(new_data)} rows into {full_table_name}.")
     
             
-def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metadata=None, params=None):
+def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metadata=None, params=None, execution_time=None):
     print(f"Start incremental loading...")
     keys = [key.strip() for key in key_column.split(",")]
     engine = establish_wh_connection()
@@ -148,15 +151,17 @@ def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metad
                 print("No new data to process.")
                 return
     
-            new_df = transform_data(new_data)
-            new_df["time"] = pd.to_datetime(new_df["time"], unit="s", utc=True)
+            new_df = transform_data(new_data, execution_time)
+            new_df["time"] = pd.to_datetime(new_df["time"], unit="s", utc=True).dt.tz_convert(VN_TZ)
             # Chỉ giữ các cột có trong bảng
             table_columns = get_existing_columns(conn, dest_schema, dest_table)
             for col in new_df.columns:
                 if col not in table_columns:
                     print(f"Warning column: '{col}' does not exitst in destionation table and will be ignored.")
             new_df = new_df[[col for col in new_df.columns if col in table_columns]]
-            
+            # ALTER TABLE raw.weather_hcmc
+            # ADD COLUMN IF NOT EXISTS execution_time timestamptz;
+
             if metadata:
                 new_df = add_metadata(new_df, metadata, dest_schema, dest_table, table_columns=table_columns)
                 

@@ -6,6 +6,8 @@ from scripts.utils.ingestion import get_ingestion
 from datetime import date, datetime, timedelta
 import numpy as np
 
+VN_TZ = "Asia/Ho_Chi_Minh"
+
 def table_is_empty(conn, schema, table):
     query = text(f'SELECT NOT EXISTS (SELECT 1 FROM "{schema}"."{table}")')
     return bool(conn.execute(query).scalar())
@@ -30,7 +32,9 @@ def establish_wh_connection():
     wh_db = os.getenv("DWH_DB")
     try:
         engine_wh = create_engine(
-            f"postgresql+psycopg2://{wh_user}:{wh_password}@{wh_host}:{wh_port}/{wh_db}"
+            f"postgresql+psycopg2://{wh_user}:{wh_password}@{wh_host}:{wh_port}/{wh_db}",
+                        connect_args={"options": f"-c timezone={VN_TZ}"},
+
         )
         logger.info(f"Established Data Warehouse connection - Database: {wh_db}")
         return engine_wh
@@ -76,7 +80,7 @@ def add_metadata(data: pd.DataFrame, metadata: list[dict],dest_schema:str,dest_t
                 print(f"Metadata column {meta} not found in destination table {dest_schema}.{dest_table}, skipping...")
                 continue
         if meta == "last_refresh_at":
-            data[meta] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            data[meta] = pd.Timestamp.now(tz=VN_TZ)
         if meta == "company_name":
             data[meta] = bc_conn["company_name"]
         if meta == "company_id":

@@ -5,7 +5,7 @@
     "api": "https://api.open-meteo.com/v1/forecast",
     "dest_schema": "raw",
     "dest_table": "weather_hcmc",
-    "schedule": null,
+    "schedule": "0 7 * * *",
     "params": {
       "latitude": 10.8231,
       "longitude": 106.6297,
