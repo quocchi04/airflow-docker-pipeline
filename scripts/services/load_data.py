@@ -1,3 +1,5 @@
+from time import timezone
+
 import pandas as pd
 import requests
 
@@ -101,8 +103,8 @@ def full_load(source_endpoint, dest_table, dest_schema, isTablebased=False, meta
             missing_cols = set(df.columns) - set(df_filtered.columns)
             print(f"Warning: The following columns are missing in the destination table and will be ignored: {missing_cols}")
         persist_data_to_dwh(df_filtered, dest_schema, dest_table)
-
-def fetch_new_data(conn, source_endpoint, dest_schema, dest_table, params=None):
+        
+def fetch_new_data(conn, source_endpoint, dest_schema, dest_table, params=None, backfill_date=None):
     if table_is_empty(conn, dest_schema, dest_table):
         print(f"Table is empty. Performing full load...")
         last_modified = None
@@ -110,14 +112,49 @@ def fetch_new_data(conn, source_endpoint, dest_schema, dest_table, params=None):
         last_modified = get_last_modified(conn, dest_schema, dest_table)
         print(f"Last modified timestamp: {last_modified}")
     
-    payload = fetch_md_data(source_endpoint, params=params) 
+    request_params = dict(params or {})
+    if backfill_date is not None:
+        variable = request_params.get("current", None)
+        if variable:
+            request_params["hourly"] = variable
+        if not request_params.get("hourly"):
+            raise ValueError("For backfill, 'hourly' parameter must be specified in the request parameters.")
+    
+        request_params.update({
+            "start_date": backfill_date,
+            "end_date": backfill_date,
+            "timezone": VN_TZ,
+            "timeformat": "unixtime",
+        })
+        
+        payload = fetch_md_data(source_endpoint, params=request_params) 
+        hourly = payload.get("hourly")
+        if not hourly or not hourly.get("time"):
+            raise ValueError(f"No hourly data found for backfill date {backfill_date} from {source_endpoint}")
+        
+        df = pd.DataFrame(hourly)
+        timestamps = pd.to_datetime(df["time"], unit="s", utc=True).dt.tz_convert(VN_TZ)
+        
+        # Bù bảng ghi 7h Việt Nam hằng ngày
+        target_time = pd.Timestamp(backfill_date).tz_localize(VN_TZ) + pd.Timedelta(hours=7)
+        
+        new_data = df.loc[timestamps == target_time].to_dict(orient="records")
+
+        if len(new_data) != 1:
+            raise ValueError(f"Expected 1 record for backfill date {backfill_date} at 7 AM, but found {len(new_data)} records.")
+        # Trả về ngay: không cần lọc theo last_modified vì đã lọc theo ngày backfill
+        return new_data, last_modified
+
+    # Luồng thông thường giữ lấy current
+    payload = fetch_md_data(source_endpoint, params=request_params)
     current = payload.get("current")
     new_data = [current] if current else []
-
+    
     if last_modified is not None:
-        new_data = [row for row in new_data
-                    if pd.to_datetime(row["time"], unit ="s", utc=True).tz_convert(VN_TZ) >= last_modified
-                    ]
+        new_data = [
+            row for row in new_data
+            if pd.to_datetime(row["time"], unit="s", utc=True).tz_convert(VN_TZ) > last_modified
+        ]
     return new_data, last_modified
 
 def upsert(conn, new_data, schema, table, keys):
@@ -136,7 +173,7 @@ def upsert(conn, new_data, schema, table, keys):
     print(f"Upserted {len(new_data)} rows into {full_table_name}.")
     
             
-def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metadata=None, params=None, execution_time=None):
+def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metadata=None, params=None, execution_time=None, backfill_date=None):
     print(f"Start incremental loading...")
     keys = [key.strip() for key in key_column.split(",")]
     engine = establish_wh_connection()
@@ -146,7 +183,8 @@ def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metad
             if not check_if_table_exists(conn, dest_schema, dest_table):
                 raise RuntimeError(f"Table {dest_schema}.{dest_table} does not exitst.")
             
-            new_data, last_modified = fetch_new_data(conn, source_endpoint, dest_schema, dest_table, params)
+            # Lấy data mới từ API và lọc theo last_modified hoặc backfill_date
+            new_data, last_modified = fetch_new_data(conn, source_endpoint, dest_schema, dest_table, params, backfill_date=backfill_date)
             if not new_data:
                 print("No new data to process.")
                 return
@@ -163,7 +201,7 @@ def incremental_load(source_endpoint, dest_table, dest_schema, key_column, metad
             if metadata:
                 new_df = add_metadata(new_df, metadata, dest_schema, dest_table, table_columns=table_columns)
                 
-            if last_modified is not None:
+            if backfill_date is not None or last_modified is not None:
                 upsert(conn, new_df, dest_schema, dest_table, keys)
             else:
                 insert_df(new_df, conn, dest_schema, dest_table)

@@ -33,14 +33,28 @@ for config in daily_ingestion_config:
         @task
         def init_context(**context):
             execution_time = pendulum.now(VN_TZ)
-            business_date = context["logical_date"].in_timezone(VN_TZ).date()
-            print(f"Run started at {execution_time} | business_date={business_date}")
-
+            logical_date = context.get("logical_date")
+            
+            business_date = (
+                logical_date.in_timezone(VN_TZ).date()
+                if logical_date is not None 
+                else execution_time.date()
+            )
+            if business_date > execution_time.date():
+                raise ValueError(f"Business date {business_date} cannot be in the future.")
+            
+            backfill_date = (
+                business_date.isoformat()
+                if business_date < execution_time.date()
+                else None
+            )
+            print(f"Execution time: {execution_time}, Business date: {business_date}, Backfill date: {backfill_date}")
             return {
                 "execution_time": execution_time.isoformat(),
                 "business_date": business_date.isoformat(),
+                "backfill_date": backfill_date,
             }
-
+        
         @task
         def load_data(ctx, cfg):
             from scripts.services.load_data import incremental_load, full_load
@@ -55,6 +69,7 @@ for config in daily_ingestion_config:
                     metadata = cfg.get("metadata", []),
                     params=cfg.get("params"),
                     execution_time=execution_time,
+                    backfill_date=ctx.get("backfill_date"),
                 )
             elif cfg["mode"] == "full_load":
                 full_load(
