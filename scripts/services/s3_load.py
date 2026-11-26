@@ -1,5 +1,5 @@
 import re
-from io import StirngIO
+from io import StringIO
 
 import pandas as pd
 from sqlalchemy import text
@@ -12,7 +12,7 @@ EXPECTED_FILES_PER_DAY = 24
 SNAPSHOT_PATTERN = re.compile(r"snapshot-(\d{8}T\d{6}Z)\.csv$")
 
 def build_prefix(base_prefix, collected_date):
-    return f"{base_prefix}/{collected_date}={collected_date}"
+    return f"{base_prefix}/{collected_date}={collected_date}/"
 
 def parse_snapshot_ts(s3_key):
     match = SNAPSHOT_PATTERN.search(s3_key)
@@ -21,20 +21,20 @@ def parse_snapshot_ts(s3_key):
     return pd.to_datetime(match.group(1), format="%Y%m%dT%H%M%SZ", utc=True)
 
 # Liệt kê file snapshot trong 1 partition
-def list_partition_files(bucket, predix, aws_conn_id="aws_default"):
+def list_partition_files(bucket, prefix, aws_conn_id="aws_default"):
     hook = S3Hook(aws_conn_id=aws_conn_id)
-    keys = hook.list_keys(bucket_name = bucket, predix=predix) or []
+    keys = hook.list_keys(bucket_name = bucket, prefix=prefix) or []
     files = sorted(k for k in keys if SNAPSHOT_PATTERN.search(k))
-    print(f"Found {len(files)} snapshot files in s3://{bucket}/{predix}")
+    print(f"Found {len(files)} snapshot files in s3://{bucket}/{prefix}")
     
     if not files:
-        raise FileNotFoundError(f"No snapshot files in s3://{bucket}/{predix}")
+        raise FileNotFoundError(f"No snapshot files in s3://{bucket}/{prefix}")
     if len(files) < EXPECTED_FILES_PER_DAY:
         print(f"Warning: expected {EXPECTED_FILES_PER_DAY} files, found {len(files)}")
     return files
 
 # Đọc toàn bộ file của partition thành 1 df
-def read_partition(bucket, keys, collected_date, aws_conn_id="aws_default"):
+def read_partition(bucket, keys, collected_date, execution_time, aws_conn_id="aws_default"):
     hook = S3Hook(aws_conn_id=aws_conn_id)
     frames = []
     for key in keys:
@@ -45,12 +45,12 @@ def read_partition(bucket, keys, collected_date, aws_conn_id="aws_default"):
         frames.append(df)
     df = pd.concat(frames, ignore_index=True)
     df["collected_date"] = pd.Timestamp(collected_date).date()
-    df["loaded_at"] = pd.Timestamp.now(tz=VN_TZ)
+    df["execution_time"] = pd.Timestamp(execution_time)
     return df
 
 # Xóa partition cũ và ghi lại trong 1 transaction
-def load_partition_to_raw(bucket, keys, collected_date, dest_schema, dest_table, log_table, aws_conn_id="aws_default"):
-    df = read_partition(bucket, keys, collected_date, aws_conn_id)
+def load_partition_to_raw(bucket, keys, collected_date, dest_schema, dest_table, log_table, execution_time, aws_conn_id="aws_default"):
+    df = read_partition(bucket, keys, collected_date, execution_time, aws_conn_id)
     engine = establish_wh_connection()
     try:
         with engine.begin() as conn:
@@ -68,7 +68,7 @@ def load_partition_to_raw(bucket, keys, collected_date, dest_schema, dest_table,
                 .rename(columns={"source_file": "s3_key"})
             )
             log_df["collected_date"] = df["collected_date"].iloc[0]
-            log_df["loaded_at"] = df["loaded_at"].iloc[0]
+            log_df["execution_time"] = df["execution_time"].iloc[0]
 
             for table in (dest_table, log_table):
                 conn.execute(

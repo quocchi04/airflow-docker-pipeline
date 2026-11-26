@@ -34,7 +34,7 @@ for config in s3_ingestion_config:
         @task
         def resolve_partition(cfg, **context):
             from scripts.services.s3_load import build_prefix
-
+            execution_time = pendulum.now(VN_TZ)
             manual_date = context["params"].get("collected_date")
             logical_date = context.get("logical_date")
             if manual_date:
@@ -47,8 +47,12 @@ for config in s3_ingestion_config:
 
             prefix = build_prefix(cfg["s3_prefix"], collected_date.isoformat())
             print(f"Collected date: {collected_date}, prefix: {prefix}")
-            return {"collected_date": collected_date.isoformat(), "prefix": prefix}
+            return {"collected_date": collected_date.isoformat(), 
+                    "prefix": prefix,
+                    "execution_time": execution_time.isoformat(),
+                    }
 
+        # Liệt kê danh sách file
         @task
         def list_files(partition, cfg):
             from scripts.services.s3_load import list_partition_files
@@ -65,6 +69,7 @@ for config in s3_ingestion_config:
                 dest_table=cfg["dest_table"],
                 log_table=cfg["log_table"],
                 aws_conn_id=cfg["aws_conn_id"],
+                execution_time=partition["execution_time"],
             )
 
         partition = resolve_partition(config)
