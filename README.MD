@@ -145,3 +145,38 @@ docker compose exec postgres psql -U airflow -d dwh \
 `docker compose down` dừng các dịch vụ nhưng giữ database. Không dùng
 `docker compose down -v` nếu muốn giữ dữ liệu. PostgreSQL chỉ chạy script
 `postgres-init/init-dwh.sql` khi volume dữ liệu được tạo lần đầu.
+
+## Xuất dữ liệu Google Drive để upload bù S3
+
+`tmp/export_ggdrive_snapshots.py` tải `crypto_full_data.csv` từ thư mục Drive
+trong script cũ, lọc theo `time_collected`, rồi tách thành từng snapshot CSV.
+Script giữ nguyên các cột và giá trị, xuất ZIP cùng `manifest.csv` ghi giờ UTC,
+giờ Việt Nam, số dòng và S3 key của từng file. Script chỉ xuất file trên máy.
+
+Ví dụ xuất các lần chạy lỗi trong ảnh từ 23:17 ngày 24/11/2026 đến lần chạy
+10:01 ngày 25/11/2026 (chừa thời gian thu thập đến trước 10:15):
+
+```bash
+venv/bin/python tmp/export_ggdrive_snapshots.py \
+  --start '2026-11-24 23:17:00' \
+  --end '2026-11-25 10:15:00' \
+  --source-timezone UTC \
+  --output backfill_exports/20261124_2317_20261125_1015
+```
+
+`--start` và `--end` mặc định là giờ Việt Nam; mốc cuối không được bao gồm.
+Cột `time_collected` không có offset nên được hiểu là UTC theo
+`--source-timezone UTC`; nếu nguồn lưu giờ Việt Nam, đổi thành
+`--source-timezone Asia/Ho_Chi_Minh`. Dùng `--input /path/crypto_full_data.csv`
+để xuất từ CSV có sẵn, không cần tải Drive. Mỗi lần chạy cần một thư mục
+`--output` mới.
+
+Sau khi giải nén `snapshots.zip`, upload thư mục `coin_prices` vào **gốc** bucket
+`coin-price-lake`. Cấu trúc này theo DAG hiện tại, ví dụ:
+
+```text
+coin_prices/collected_date=2026-11-24/snapshot-20261124T161820Z.csv
+```
+
+Ngày partition và timestamp trong tên file đều là UTC. Không upload ZIP hay
+`manifest.csv` vào partition dữ liệu.

@@ -3,3 +3,6 @@ venv
 __pycache__/
 logs/
 plugins
+backfill_exports/
+tests/
+tmp/

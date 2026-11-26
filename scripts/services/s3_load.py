@@ -12,7 +12,7 @@ EXPECTED_FILES_PER_DAY = 24
 SNAPSHOT_PATTERN = re.compile(r"snapshot-(\d{8}T\d{6}Z)\.csv$")
 
 def build_prefix(base_prefix, collected_date):
-    return f"{base_prefix}/{collected_date}={collected_date}/"
+    return f"{base_prefix}/collected_date={collected_date}/"
 
 def parse_snapshot_ts(s3_key):
     match = SNAPSHOT_PATTERN.search(s3_key)
