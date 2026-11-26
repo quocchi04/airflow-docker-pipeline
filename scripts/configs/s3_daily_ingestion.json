@@ -1,0 +1,14 @@
+[
+    {
+        "dag_id": "coin_daily_ingestion",
+        "enabled": true,
+        "schedule": "50 6 * * *",
+        "start_date": "2026-11-21",
+        "aws_conn_id": null,
+        "bucket": "coin-price-lake",
+        "s3_prefix": "coin_prices",
+        "dest_schema": "raw",
+        "dest_table": "coin_prices",
+        "log_table": "s3_file_log"
+    }
+]
